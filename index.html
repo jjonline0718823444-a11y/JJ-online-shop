@@ -725,7 +725,7 @@ async function getNextSaleId() {
         transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
         return nextNumber;
     });
-    return `jj${newNumber}`;
+    return `JJ${newNumber}`;
 }
 
 confirmSaleBtn.onclick = async function() {

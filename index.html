@@ -65,27 +65,8 @@
         .report-table-container { max-height: 400px; overflow-y: auto; border: 1px solid #cfdee9; border-radius: 12px; }
         .report-table-container table { margin-top:0; }
         .date-label { margin-right: 5px; font-weight: bold; white-space: nowrap; }
-
-        /* Responsive Table Wrappers */
         .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-        @media print {
-            body * { visibility: hidden; }
-            #billModal, #billModal * { visibility: visible; }
-            #billModal { position: absolute; left:0; top:0; width:100%; height:auto; background:white; }
-            .modal { box-shadow:none; width:100%; max-width:100%; margin:0; padding:5mm; }
-            .no-print { display: none !important; }
-            .bill-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8mm; page-break-inside: avoid; }
-            .mini-bill { border: 1px solid #000; padding: 5mm; font-size: 9pt; background: white; break-inside: avoid; }
-            .mini-bill .bill-header { font-weight:bold; font-size:10pt; margin-bottom:2mm; }
-            .mini-bill .bill-customer { margin-bottom:2mm; }
-            .mini-bill .bill-items { margin-bottom:2mm; }
-            .mini-bill .bill-subtotal,
-            .mini-bill .bill-courier { font-size: 8pt; margin-top: 1mm; }
-            .mini-bill .bill-total { font-weight:bold; text-align:right; margin-top: 2mm; }
-        }
-
-        /* ===== MOBILE RESPONSIVE ===== */
         @media (max-width: 768px) {
             body { padding: 10px; }
             .container { padding: 15px 12px; border-radius: 20px; }
@@ -99,7 +80,6 @@
             .btn-group button { flex: 1 1 auto; min-width: 120px; padding: 10px; }
             .stats { flex-direction: column; text-align: center; }
             .stats span { width: 100%; }
-            /* POS Panel */
             #panelPOS > div:first-child { flex-direction: column !important; }
             #panelPOS .cart-table td input[type="number"] { width: 50px; }
             .modal { width: 95%; padding: 20px; max-height: 80vh; }
@@ -110,7 +90,6 @@
             input[type="date"] { width: 100%; }
             #searchSaleInput { width: 100%; }
         }
-
         @media (max-width: 480px) {
             .btn-group button { min-width: 100%; }
             .tab { padding: 8px; font-size: 0.8rem; }
@@ -307,7 +286,7 @@
 <script>
 // Firebase config
 const firebaseConfig = {
-   apiKey: "AIzaSyDUIaLNRqZ8jg4061kqSKJs-wUNtvG8gko",
+    apiKey: "AIzaSyDUIaLNRqZ8jg4061kqSKJs-wUNtvG8gko",
   authDomain: "jj-stock.firebaseapp.com",
   projectId: "jj-stock",
   storageBucket: "jj-stock.firebasestorage.app",
@@ -331,7 +310,6 @@ let paymentFilter = 'all';
 let reportStockData = [];
 let reportSalesData = [];
 
-// ---- Replace this URL with your own JJ Online logo ----
 const LOGO_URL = "https://i.postimg.cc/7Y8D56Py/Blue-and-Orange-Minimalist-Gaming-Laptop-Sale-Instagram-Post-(16).png";
 
 // DOM Elements
@@ -395,6 +373,7 @@ auth.onAuthStateChanged(async (user) => {
         await loadConfig();
         await fetchStock();
         await ensureSaleCounter();
+        await searchSales();
     } else {
         document.getElementById('loginScreen').style.display = 'block';
         document.getElementById('mainApp').style.display = 'none';
@@ -507,7 +486,7 @@ function renderStockTable() {
     const start = (currentPage - 1) * ROWS_PER_PAGE;
     const pageData = filteredStock.slice(start, start + ROWS_PER_PAGE);
     if (!pageData.length) {
-        stockTableBody.innerHTML = "<tr><td colspan='4'>No data</td></tr>";
+        stockTableBody.innerHTML = "</td><td colspan='4'>No data</td></tr>";
     } else {
         pageData.forEach(row => {
             const tr = document.createElement('tr');
@@ -659,22 +638,40 @@ function exportStockCSV() {
     showStockMsg("Stock CSV downloaded");
 }
 
+// EXPORT SALES CSV – one row per bill with required columns
 async function exportSalesCSV() {
     try {
-        const snapshot = await db.collection('sales').orderBy('timestamp','desc').get();
-        const csvRows = [["SaleID","Date","CustomerName","Address","Phone","ItemID","ItemName","Price","Qty","ItemTotal","Subtotal","Courier","GrandTotal","PaymentStatus"]];
+        const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
+        if (snapshot.empty) {
+            showStockMsg("No sales data to export", true);
+            return;
+        }
+        const csvRows = [["JJ Number", "Customer Name", "Address", "City", "Bill Total (Rs.)", "Payment Status"]];
         snapshot.forEach(doc => {
             const data = doc.data();
-            const date = data.timestamp ? data.timestamp.toDate().toLocaleString('si-LK') : '';
-            data.items.forEach(item => {
-                csvRows.push([doc.id, date, data.customerName, data.address, data.phone, item.id, item.name, item.price, item.qty, item.total, data.subtotal, data.courier, data.grandTotal, data.paymentStatus || 'unpaid']);
-            });
+            csvRows.push([
+                doc.id,
+                data.customerName || '',
+                data.address || '',
+                data.city || '',
+                (data.grandTotal || 0).toFixed(2),
+                data.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'
+            ]);
         });
-        const csvContent = "\uFEFF" + csvRows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csvContent], {type:"text/csv;charset=utf-8"});
-        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `sales_backup_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-        showStockMsg("Sales CSV downloaded");
-    } catch (err) { showStockMsg("Error: " + err.message, true); }
+        const csvContent = "\uFEFF" + csvRows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = `sales_summary_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showStockMsg("Sales summary CSV downloaded");
+    } catch (err) {
+        showStockMsg("Error exporting sales: " + err.message, true);
+    }
 }
 
 document.getElementById('addBtn').onclick = addStock;
@@ -827,6 +824,7 @@ confirmSaleBtn.onclick = async function() {
         custName.value = custAddress.value = custCity.value = custPhone.value = "";
         cart = []; renderCart(); courierChargeEl.value = defaultCourier; updateTotals();
         await fetchStock();
+        await searchSales();
     } catch (err) {
         showPosMsg("Sale failed: " + err.message, true);
     } finally {
@@ -889,14 +887,13 @@ async function searchSales() {
         salesCurrentPage = 1;
         filterAndRenderSales();
     } catch (err) {
-        salesHistoryBody.innerHTML = "<tr><td colspan='7'>Error: " + err.message + "</td></tr>";
+        salesHistoryBody.innerHTML = `<tr><td colspan='7'>Error: ${err.message}</td></tr>`;
         console.error(err);
     }
 }
 
 document.getElementById('dateFrom').addEventListener('change', searchSales);
 document.getElementById('dateTo').addEventListener('change', searchSales);
-
 document.getElementById('searchSaleBtn').onclick = searchSales;
 
 function filterAndRenderSales() {
@@ -1106,7 +1103,7 @@ async function saveComment() {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// ================== BILL VIEW ==================
+// ================== BILL VIEW & PRINT HELPERS ==================
 async function getSaleData(saleId) {
     if (billCache[saleId]) return billCache[saleId];
     let docSnap;
@@ -1161,31 +1158,87 @@ async function viewBill(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
+// ========== FIXED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
+// Uses getSaleData() which respects isDeletedView, so both active and deleted bills work.
 async function printSelectedBills() {
     if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
     const saleIds = Array.from(selectedSales);
-    try {
-        const results = await Promise.all(saleIds.map(id => getSaleData(id).catch(() => null)));
-        let combinedHtml = '';
-        results.forEach((json, index) => {
-            if (!json || !json.success) return;
-            const { customer, items } = json;
-            combinedHtml += `
-                <div class="mini-bill">
-                    <img src="${LOGO_URL}" style="width:80px; display:block; margin:0 auto 3mm;" alt="Logo">
-                    <div class="bill-header">Sale ID: ${saleIds[index]}</div>
-                    <div class="bill-customer">${escapeHtml(customer.name || '')}</div>
-                    <div class="bill-items">${items.map(it => `${it.name} x${it.qty} Rs.${it.total}`).join('<br>')}</div>
-                    <div class="bill-subtotal">Subtotal: Rs. ${parseFloat(customer.subtotal).toFixed(2)}</div>
-                    <div class="bill-courier">Courier: Rs. ${parseFloat(customer.courier).toFixed(2)}</div>
-                    <div class="bill-total">Grand Total: Rs. ${parseFloat(customer.grandTotal).toFixed(2)}</div>
+    const billsHtml = [];
+    for (const id of saleIds) {
+        let data;
+        try {
+            data = await getSaleData(id);  // uses isDeletedView automatically
+        } catch(e) {
+            console.warn(`Could not fetch bill ${id}:`, e);
+            continue;
+        }
+        if (!data || !data.success) continue;
+        const { customer, items } = data;
+        let itemsHtml = `<table class="bill-items-table"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
+        items.forEach(it => { itemsHtml += `<tr><td>${escapeHtml(it.name)}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td>Rs.${it.total.toFixed(2)}</td></tr>`; });
+        itemsHtml += `</tbody></table>`;
+        billsHtml.push(`
+            <div class="bill-card">
+                <img class="logo-print-img" src="${LOGO_URL}" alt="Logo">
+                <div class="bill-header">🧾 BILL: ${id}</div>
+                <div class="bill-customer">
+                    <strong>${escapeHtml(customer.name)}</strong><br>
+                    ${escapeHtml(customer.address)}, ${escapeHtml(customer.city)}<br>
+                    📞 ${escapeHtml(customer.phone)}
                 </div>
-            `;
-        });
-        document.getElementById('billContent').innerHTML = `<div class="bill-grid">${combinedHtml}</div>`;
-        document.getElementById('billModal').style.display = 'flex';
-        setTimeout(() => { window.print(); }, 300);
-    } catch (err) { alert("Error: " + err.message); }
+                ${itemsHtml}
+                <div class="bill-subtotal">Subtotal: Rs.${customer.subtotal.toFixed(2)}</div>
+                <div class="bill-courier">Courier: Rs.${customer.courier.toFixed(2)}</div>
+                <div class="bill-total"><strong>Total: Rs.${customer.grandTotal.toFixed(2)}</strong></div>
+            </div>
+        `);
+    }
+    
+    // Group bills into pages of 9
+    let pagesHtml = '';
+    for (let i = 0; i < billsHtml.length; i += 9) {
+        const pageBills = billsHtml.slice(i, i + 9).join('');
+        pagesHtml += `<div class="bill-page">${pageBills}</div>`;
+    }
+    
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Print Bills</title><style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+        body { background: white; padding: 8mm; }
+        .bill-page { page-break-after: always; }
+        .bill-page:last-child { page-break-after: auto; }
+        .bill-page {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6mm;
+            align-items: start;
+        }
+        .bill-card {
+            border: 1px solid #aaa;
+            padding: 4mm;
+            border-radius: 4px;
+            background: white;
+            break-inside: avoid;
+            font-size: 9pt;
+        }
+        .logo-print-img { max-width: 60px; display: block; margin: 0 auto 3mm; }
+        .bill-header { font-size: 11pt; font-weight: bold; text-align: center; margin-bottom: 3mm; }
+        .bill-customer { margin-bottom: 3mm; padding-bottom: 2mm; border-bottom: 1px dashed #ccc; font-size: 8.5pt; }
+        .bill-items-table { width: 100%; border-collapse: collapse; margin: 2mm 0; font-size: 8pt; }
+        .bill-items-table th, .bill-items-table td { border: 1px solid #999; padding: 2px; text-align: left; }
+        .bill-subtotal, .bill-courier { text-align: right; font-size: 8.5pt; margin-top: 1mm; }
+        .bill-total { text-align: right; font-weight: bold; margin-top: 2mm; font-size: 10pt; }
+        @media print {
+            body { padding: 0; margin: 0; }
+            .bill-page { page-break-after: always; }
+        }
+    </style></head><body>${pagesHtml}</body></html>`;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(fullHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    setTimeout(() => { printWindow.close(); }, 500);
 }
 
 async function downloadSelectedBills() {
@@ -1198,20 +1251,13 @@ async function downloadSelectedBills() {
             const json = await getSaleData(id);
             const { customer, items } = json;
             const date = new Date().toLocaleString();
-            const customerName = customer.name || '';
-            const address = customer.address || '';
-            const city = customer.city || '';
-            const phone = customer.phone || '';
-            const subtotal = customer.subtotal;
-            const courier = customer.courier;
-            const grandTotal = customer.grandTotal;
             const paymentStatus = salesHistoryData.find(s => s.SaleID === id)?.PaymentStatus || 'unpaid';
             if (items && items.length > 0) {
                 items.forEach(item => {
-                    csvRows.push([id, date, customerName, address, city, phone, item.id, item.name, item.price, item.qty, item.total, subtotal, courier, grandTotal, paymentStatus]);
+                    csvRows.push([id, date, customer.name, customer.address, customer.city, customer.phone, item.id, item.name, item.price, item.qty, item.total, customer.subtotal, customer.courier, customer.grandTotal, paymentStatus]);
                 });
             } else {
-                csvRows.push([id, date, customerName, address, city, phone, '', '', '', '', '', subtotal, courier, grandTotal, paymentStatus]);
+                csvRows.push([id, date, customer.name, customer.address, customer.city, customer.phone, '', '', '', '', '', customer.subtotal, customer.courier, customer.grandTotal, paymentStatus]);
             }
         } catch (err) { console.error(err); }
     }
@@ -1253,14 +1299,12 @@ async function openReports() {
     });
 
     let html = '';
-    // Stock table
     html += '<div class="report-section"><h3>📦 Stock Items</h3><div class="report-table-container"><table><thead><tr><th>ID</th><th>Name</th><th>Price (Rs.)</th><th>Qty</th><th>Value</th></tr></thead><tbody>';
     reportStockData.forEach(item => {
         html += `<tr><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.name)}</td><td>${parseFloat(item.price).toFixed(2)}</td><td>${parseInt(item.qty)}</td><td>${(item.price * item.qty).toFixed(2)}</td></tr>`;
     });
     html += '</tbody></table></div></div>';
 
-    // All Sales
     html += '<div class="report-section"><h3>🧾 All Bills</h3><div class="report-table-container"><table><thead><tr><th>Sale ID</th><th>Customer</th><th>Date</th><th>Total</th><th>Payment</th></tr></thead><tbody>';
     reportSalesData.forEach(sale => {
         const paymentText = sale.payment === 'paid' ? '✅ Paid' : '❌ Unpaid';
@@ -1269,7 +1313,6 @@ async function openReports() {
     });
     html += '</tbody></table></div></div>';
 
-    // Paid
     const paid = reportSalesData.filter(s => s.payment === 'paid');
     html += '<div class="report-section"><h3>✅ Paid Bills</h3><div class="report-table-container"><table><thead><tr><th>Sale ID</th><th>Customer</th><th>Date</th><th>Total</th></tr></thead><tbody>';
     paid.forEach(sale => {
@@ -1277,7 +1320,6 @@ async function openReports() {
     });
     html += '</tbody></table></div></div>';
 
-    // Unpaid
     const unpaid = reportSalesData.filter(s => s.payment === 'unpaid');
     html += '<div class="report-section"><h3>❌ Unpaid Bills</h3><div class="report-table-container"><table><thead><tr><th>Sale ID</th><th>Customer</th><th>Date</th><th>Total</th></tr></thead><tbody>';
     unpaid.forEach(sale => {
@@ -1295,8 +1337,6 @@ function closeReports() {
 
 function exportToExcel() {
     const wb = XLSX.utils.book_new();
-
-    // Stock sheet
     const stockSheetData = [['ID', 'Name', 'Price', 'Quantity', 'Value']];
     reportStockData.forEach(item => {
         stockSheetData.push([item.id, item.name, item.price, item.qty, (item.price * item.qty).toFixed(2)]);
@@ -1304,7 +1344,6 @@ function exportToExcel() {
     const stockWs = XLSX.utils.aoa_to_sheet(stockSheetData);
     XLSX.utils.book_append_sheet(wb, stockWs, "Stock");
 
-    // All Sales sheet
     const allSalesData = [['Sale ID', 'Customer', 'Date', 'Total', 'Payment']];
     reportSalesData.forEach(sale => {
         allSalesData.push([sale.saleId, sale.customer, sale.date, sale.total, sale.payment]);
@@ -1312,21 +1351,15 @@ function exportToExcel() {
     const allSalesWs = XLSX.utils.aoa_to_sheet(allSalesData);
     XLSX.utils.book_append_sheet(wb, allSalesWs, "All Sales");
 
-    // Paid sheet
     const paid = reportSalesData.filter(s => s.payment === 'paid');
     const paidData = [['Sale ID', 'Customer', 'Date', 'Total']];
-    paid.forEach(sale => {
-        paidData.push([sale.saleId, sale.customer, sale.date, sale.total]);
-    });
+    paid.forEach(sale => { paidData.push([sale.saleId, sale.customer, sale.date, sale.total]); });
     const paidWs = XLSX.utils.aoa_to_sheet(paidData);
     XLSX.utils.book_append_sheet(wb, paidWs, "Paid");
 
-    // Unpaid sheet
     const unpaid = reportSalesData.filter(s => s.payment === 'unpaid');
     const unpaidData = [['Sale ID', 'Customer', 'Date', 'Total']];
-    unpaid.forEach(sale => {
-        unpaidData.push([sale.saleId, sale.customer, sale.date, sale.total]);
-    });
+    unpaid.forEach(sale => { unpaidData.push([sale.saleId, sale.customer, sale.date, sale.total]); });
     const unpaidWs = XLSX.utils.aoa_to_sheet(unpaidData);
     XLSX.utils.book_append_sheet(wb, unpaidWs, "Unpaid");
 

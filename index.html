@@ -318,9 +318,9 @@
 </div>
 
 <script>
-// Firebase config
+// Firebase config - අලුත් project එක
 const firebaseConfig = {
-     apiKey: "AIzaSyBv4SDBC_fVMgIrz_rjDqI6iKQp292eRgs",
+  apiKey: "AIzaSyBv4SDBC_fVMgIrz_rjDqI6iKQp292eRgs",
   authDomain: "jj-online-temporary.firebaseapp.com",
   projectId: "jj-online-temporary",
   storageBucket: "jj-online-temporary.firebasestorage.app",
@@ -343,7 +343,7 @@ let isDeletedView = false;
 let paymentFilter = 'all';
 let reportStockData = [];
 let reportSalesData = [];
-let isInitialized = false; // Track if already initialized
+let isInitialized = false;
 
 const LOGO_URL = "https://i.postimg.cc/7Y8D56Py/Blue-and-Orange-Minimalist-Gaming-Laptop-Sale-Instagram-Post-(16).png";
 
@@ -376,6 +376,32 @@ const custPhone = document.getElementById('custPhone');
 const paymentFilterEl = document.getElementById('paymentFilter');
 
 function escapeHtml(str) { return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+
+// Timestamp conversion helper - migration data fix
+function convertTimestamp(timestamp) {
+    try {
+        if (timestamp && typeof timestamp.toDate === 'function') {
+            return timestamp.toDate();
+        }
+        if (timestamp instanceof Date) {
+            return timestamp;
+        }
+        if (typeof timestamp === 'string') {
+            return new Date(timestamp);
+        }
+        if (timestamp && timestamp.seconds) {
+            return new Date(timestamp.seconds * 1000);
+        }
+        if (timestamp && timestamp._seconds) {
+            return new Date(timestamp._seconds * 1000);
+        }
+        return new Date();
+    } catch (err) {
+        console.error('Timestamp conversion error:', err);
+        return new Date();
+    }
+}
+
 function showStockMsg(msg, isError = false) {
     stockMsgBox.innerHTML = isError ? `❌ ${msg}` : `✅ ${msg}`;
     stockMsgBox.style.color = isError ? "#b22234" : "#1e466e";
@@ -408,14 +434,14 @@ auth.onAuthStateChanged(async (user) => {
         if (!isInitialized) {
             isInitialized = true;
             await loadConfig();
-            await ensureSaleCounter(); // Only called once
+            await ensureSaleCounter();
             await fetchStock();
             await searchSales();
         }
     } else {
         document.getElementById('loginScreen').style.display = 'block';
         document.getElementById('mainApp').style.display = 'none';
-        isInitialized = false; // Reset for next login
+        isInitialized = false;
     }
 });
 
@@ -561,14 +587,12 @@ function renderPagination() {
         return btn;
     };
 
-    // Prev button
     const prevBtn = document.createElement('button');
     prevBtn.textContent = 'Prev';
     prevBtn.disabled = currentPage === 1;
     prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderStockTable(); checkLowStock(); } };
     paginationDiv.appendChild(prevBtn);
 
-    // Sliding window: show max 7 pages
     const maxVisible = 7;
     let startPage, endPage;
     if (totalPages <= maxVisible) {
@@ -607,7 +631,6 @@ function renderPagination() {
         paginationDiv.appendChild(createPageBtn(totalPages));
     }
 
-    // Next button
     const nextBtn = document.createElement('button');
     nextBtn.textContent = 'Next';
     nextBtn.disabled = currentPage === totalPages;
@@ -732,7 +755,7 @@ function exportStockCSV() {
     showStockMsg("Stock CSV downloaded");
 }
 
-// EXPORT SALES CSV – one row per bill with required columns
+// EXPORT SALES CSV
 async function exportSalesCSV() {
     try {
         const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
@@ -835,7 +858,7 @@ function getStockQty(itemId) {
     return found ? parseInt(found[3]) || 0 : 0;
 }
 function updateCartQty(index, newQty) {
-    newQty = Math.max(1, parseInt(newQty) || 1); // Prevent negative
+    newQty = Math.max(1, parseInt(newQty) || 1);
     const item = cart[index];
     const available = getStockQty(item.id);
     if (newQty > available) { alert(`Maximum available ${available}`); newQty = available; }
@@ -864,7 +887,6 @@ confirmSaleBtn.onclick = async function() {
 
     try {
         const city = document.getElementById('custCity').value.trim();
-        // Prepare sale data structure
         const items = cart.map(c => ({
             id: c.id,
             name: c.name,
@@ -889,20 +911,16 @@ confirmSaleBtn.onclick = async function() {
             paymentStatus: 'unpaid'
         };
 
-        // Atomic transaction: read counter, check stock, update counter + stock + create sale
         const counterRef = db.collection('metadata').doc('saleCounter');
         const saleId = await db.runTransaction(async (transaction) => {
-            // 1. Read counter
             const counterSnap = await transaction.get(counterRef);
             let lastNumber = counterSnap.exists ? (counterSnap.data().lastNumber || 1309) : 1309;
             const nextNumber = lastNumber + 1;
             const newSaleId = `JJ${nextNumber}`;
 
-            // 2. Read all stock docs for cart items (to ensure they haven't changed)
             const stockRefs = cart.map(item => db.collection('stock').doc(item.id));
             const stockSnaps = await Promise.all(stockRefs.map(ref => transaction.get(ref)));
             
-            // Verify stock availability
             for (let i = 0; i < cart.length; i++) {
                 const snap = stockSnaps[i];
                 if (!snap.exists) throw new Error(`Stock item ${cart[i].id} not found`);
@@ -912,17 +930,14 @@ confirmSaleBtn.onclick = async function() {
                 }
             }
 
-            // 3. Update counter
             transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
 
-            // 4. Update stock quantities
             for (let i = 0; i < cart.length; i++) {
                 const ref = stockRefs[i];
                 const currentQty = stockSnaps[i].data().qty || 0;
                 transaction.update(ref, { qty: currentQty - cart[i].qty });
             }
 
-            // 5. Create sale document
             const saleRef = db.collection('sales').doc(newSaleId);
             transaction.set(saleRef, salePayload);
 
@@ -976,7 +991,7 @@ async function searchSales() {
                 Address: data.address,
                 City: data.city || '',
                 Phone: data.phone,
-                Timestamp: data.timestamp ? data.timestamp.toDate() : new Date(),
+                Timestamp: data.timestamp ? convertTimestamp(data.timestamp) : new Date(),
                 GrandTotal: data.grandTotal,
                 Comment: data.comment || '',
                 Items: data.items,
@@ -1175,7 +1190,6 @@ function clearSelection() {
     document.getElementById('selectAllCheckbox').checked = false;
 }
 
-// Soft delete
 async function deleteSale(saleId) {
     if (!confirm(`Delete bill "${saleId}" and restore stock?`)) return;
     try {
@@ -1201,7 +1215,6 @@ async function deleteSale(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// Restore
 async function restoreSale(saleId) {
     if (!confirm(`Restore "${saleId}" and deduct stock?`)) return;
     try {
@@ -1230,7 +1243,6 @@ async function restoreSale(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// Permanent delete
 async function permanentDeleteSale(saleId) {
     if (!confirm(`Permanently delete "${saleId}"?`)) return;
     try {
@@ -1240,7 +1252,6 @@ async function permanentDeleteSale(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// Comment modal
 function openCommentModal(saleId, currentComment) {
     document.getElementById('commentSaleId').value = saleId;
     document.getElementById('commentText').value = currentComment || '';
@@ -1312,7 +1323,7 @@ async function viewBill(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// ========== FIXED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
+// ========== PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
 async function printSelectedBills() {
     if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
     const saleIds = Array.from(selectedSales);
@@ -1393,7 +1404,6 @@ async function printSelectedBills() {
     setTimeout(() => { printWindow.close(); }, 500);
 }
 
-// Download selected bills (updated)
 async function downloadSelectedBills() {
     if (selectedSales.size === 0) { 
         alert("Please select at least one bill."); 
@@ -1410,7 +1420,7 @@ async function downloadSelectedBills() {
                 const docSnap = await db.collection('sales').doc(id).get();
                 if (!docSnap.exists) continue;
                 const data = docSnap.data();
-                const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('si-LK') : '';
+                const date = data.timestamp ? convertTimestamp(data.timestamp).toLocaleDateString('si-LK') : '';
                 csvRows.push([
                     id, date,
                     data.customerName || '', data.address || '', data.city || '', data.phone || '',
@@ -1469,7 +1479,7 @@ function openEditModal(saleId) {
     const items = sale.Items || [];
     const subtotal = items.reduce((sum, it) => sum + (it.total || it.price * it.qty), 0);
     const courier = (sale.GrandTotal || 0) - subtotal;
-    document.getElementById('editCourier').value = Math.max(0, courier).toFixed(2); // ensure non-negative
+    document.getElementById('editCourier').value = Math.max(0, courier).toFixed(2);
 
     editingItems = JSON.parse(JSON.stringify(items));
     renderEditItems();
@@ -1498,7 +1508,7 @@ function renderEditItems() {
 function updateEditItem(idx, field, value) {
     if (field === 'qty') {
         let newQty = parseInt(value);
-        if (isNaN(newQty) || newQty < 1) newQty = 1;  // Prevent negative/zero
+        if (isNaN(newQty) || newQty < 1) newQty = 1;
         editingItems[idx].qty = newQty;
         const row = document.getElementById('editItemsBody').children[idx];
         if (row) {
@@ -1517,7 +1527,7 @@ function removeEditItem(idx) {
 function addItemToEditBill() {
     const selVal = document.getElementById('editItemSearch').value.trim();
     let qty = parseInt(document.getElementById('editItemQty').value);
-    if (isNaN(qty) || qty < 1) qty = 1; // ensure valid qty
+    if (isNaN(qty) || qty < 1) qty = 1;
     if (!selVal) { alert("Select item"); return; }
     const idMatch = selVal.match(/^([^\s-]+)/);
     if (!idMatch) { alert("Invalid item"); return; }
@@ -1545,7 +1555,7 @@ function addItemToEditBill() {
 function updateEditTotals() {
     const subtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
     let courier = parseFloat(document.getElementById('editCourier').value) || 0;
-    if (courier < 0) courier = 0; // ensure non-negative
+    if (courier < 0) courier = 0;
     document.getElementById('editSubtotal').textContent = subtotal.toFixed(2);
     document.getElementById('editGrandTotal').textContent = (subtotal + courier).toFixed(2);
 }
@@ -1584,7 +1594,6 @@ async function saveEditedBill() {
         if (delta !== 0) stockUpdates[itemId] = delta;
     }
 
-    // Real-time stock check from Firestore
     for (const [itemId, delta] of Object.entries(stockUpdates)) {
         const stockDocRef = db.collection('stock').doc(itemId);
         const stockSnap = await stockDocRef.get();
@@ -1653,7 +1662,7 @@ async function openReports() {
             address: d.address,
             city: d.city || '',
             phone: d.phone,
-            date: d.timestamp ? d.timestamp.toDate().toLocaleString('si-LK') : '',
+            date: d.timestamp ? convertTimestamp(d.timestamp).toLocaleString('si-LK') : '',
             total: d.grandTotal,
             payment: d.paymentStatus || 'unpaid'
         });

@@ -319,7 +319,7 @@
 
 <script>
 // Firebase config
- const firebaseConfig = {
+const firebaseConfig = {
     apiKey: "AIzaSyDUIaLNRqZ8jg4061kqSKJs-wUNtvG8gko",
   authDomain: "jj-stock.firebaseapp.com",
   projectId: "jj-stock",
@@ -330,7 +330,6 @@
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
-
 
 // Global variables
 let stockData = [], filteredStock = [], cart = [], selectedSales = new Set();
@@ -344,6 +343,7 @@ let isDeletedView = false;
 let paymentFilter = 'all';
 let reportStockData = [];
 let reportSalesData = [];
+let isInitialized = false; // Track if already initialized
 
 const LOGO_URL = "https://i.postimg.cc/7Y8D56Py/Blue-and-Orange-Minimalist-Gaming-Laptop-Sale-Instagram-Post-(16).png";
 
@@ -405,21 +405,29 @@ auth.onAuthStateChanged(async (user) => {
     if (user) {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('mainApp').style.display = 'block';
-        await loadConfig();
-        await fetchStock();
-        await ensureSaleCounter();
-        await searchSales();
+        if (!isInitialized) {
+            isInitialized = true;
+            await loadConfig();
+            await ensureSaleCounter(); // Only called once
+            await fetchStock();
+            await searchSales();
+        }
     } else {
         document.getElementById('loginScreen').style.display = 'block';
         document.getElementById('mainApp').style.display = 'none';
+        isInitialized = false; // Reset for next login
     }
 });
 
 async function ensureSaleCounter() {
-    const counterRef = db.collection('metadata').doc('saleCounter');
-    const docSnap = await counterRef.get();
-    if (!docSnap.exists) {
-        await counterRef.set({ lastNumber: 1309 });
+    try {
+        const counterRef = db.collection('metadata').doc('saleCounter');
+        const docSnap = await counterRef.get();
+        if (!docSnap.exists) {
+            await counterRef.set({ lastNumber: 1309 });
+        }
+    } catch (err) {
+        console.error('Error ensuring sale counter:', err);
     }
 }
 
@@ -441,13 +449,17 @@ async function loadConfig() {
 // ================== SETTINGS ==================
 async function openSettings() {
     document.getElementById('newDefaultCourier').value = defaultCourier;
-    const counterRef = db.collection('metadata').doc('saleCounter');
-    const docSnap = await counterRef.get();
-    let nextNum = 1310;
-    if (docSnap.exists) {
-        nextNum = (docSnap.data().lastNumber || 1309) + 1;
+    try {
+        const counterRef = db.collection('metadata').doc('saleCounter');
+        const docSnap = await counterRef.get();
+        let nextNum = 1310;
+        if (docSnap.exists) {
+            nextNum = (docSnap.data().lastNumber || 1309) + 1;
+        }
+        document.getElementById('currentNextId').textContent = `JJ${nextNum}`;
+    } catch (err) {
+        document.getElementById('currentNextId').textContent = 'Error loading';
     }
-    document.getElementById('currentNextId').textContent = `JJ${nextNum}`;
     document.getElementById('newStartNumber').value = '';
     document.getElementById('settingsModal').style.display = 'flex';
 }
@@ -521,7 +533,7 @@ function renderStockTable() {
     const start = (currentPage - 1) * ROWS_PER_PAGE;
     const pageData = filteredStock.slice(start, start + ROWS_PER_PAGE);
     if (!pageData.length) {
-        stockTableBody.innerHTML = "</td><td colspan='4'>No data</td></tr>";
+        stockTableBody.innerHTML = "<tr><td colspan='4'>No data</td></tr>";
     } else {
         pageData.forEach(row => {
             const tr = document.createElement('tr');
@@ -545,7 +557,7 @@ function renderPagination() {
         const btn = document.createElement('button');
         btn.textContent = pageNum;
         if (pageNum === currentPage) btn.classList.add('active-page');
-        btn.onclick = () => { currentPage = pageNum; renderStockTable(); };
+        btn.onclick = () => { currentPage = pageNum; renderStockTable(); checkLowStock(); };
         return btn;
     };
 
@@ -553,7 +565,7 @@ function renderPagination() {
     const prevBtn = document.createElement('button');
     prevBtn.textContent = 'Prev';
     prevBtn.disabled = currentPage === 1;
-    prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderStockTable(); } };
+    prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderStockTable(); checkLowStock(); } };
     paginationDiv.appendChild(prevBtn);
 
     // Sliding window: show max 7 pages
@@ -599,7 +611,7 @@ function renderPagination() {
     const nextBtn = document.createElement('button');
     nextBtn.textContent = 'Next';
     nextBtn.disabled = currentPage === totalPages;
-    nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; renderStockTable(); } };
+    nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; renderStockTable(); checkLowStock(); } };
     paginationDiv.appendChild(nextBtn);
 }
 
@@ -631,6 +643,7 @@ function filterStock() {
     currentPage = 1;
     renderStockTable();
     updateStockStats(filteredStock);
+    checkLowStock();
 }
 searchStockBox.addEventListener('input', () => {
     clearTimeout(searchTimeout);

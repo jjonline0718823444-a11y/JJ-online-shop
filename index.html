@@ -320,12 +320,12 @@
 <script>
 // Firebase config - අලුත් project එක
 const firebaseConfig = {
-  apiKey: "AIzaSyBv4SDBC_fVMgIrz_rjDqI6iKQp292eRgs",
-  authDomain: "jj-online-temporary.firebaseapp.com",
-  projectId: "jj-online-temporary",
-  storageBucket: "jj-online-temporary.firebasestorage.app",
-  messagingSenderId: "727106768464",
-  appId: "1:727106768464:web:662a16836161cac9df4b55"
+ apiKey: "AIzaSyDUIaLNRqZ8jg4061kqSKJs-wUNtvG8gko",
+  authDomain: "jj-stock.firebaseapp.com",
+  projectId: "jj-stock",
+  storageBucket: "jj-stock.firebasestorage.app",
+  messagingSenderId: "575897639104",
+  appId: "1:575897639104:web:03dda4d7c033bac7fcb525"
 };
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
@@ -344,6 +344,7 @@ let paymentFilter = 'all';
 let reportStockData = [];
 let reportSalesData = [];
 let isInitialized = false;
+let isProcessingSale = false; // Duplicate sale prevention
 
 const LOGO_URL = "https://i.postimg.cc/7Y8D56Py/Blue-and-Orange-Minimalist-Gaming-Laptop-Sale-Instagram-Post-(16).png";
 
@@ -875,6 +876,12 @@ function updateTotals() {
 
 // ================== SALE WITH CUSTOM ID (ATOMIC TRANSACTION) ==================
 confirmSaleBtn.onclick = async function() {
+    // Duplicate prevention - check if already processing
+    if (isProcessingSale) {
+        showPosMsg("Sale already processing...", true);
+        return;
+    }
+    
     if (!custName.value.trim()) { showPosMsg("Customer name required", true); return; }
     if (cart.length === 0) { showPosMsg("Cart is empty", true); return; }
     const courier = parseFloat(courierChargeEl.value) || 0;
@@ -882,6 +889,9 @@ confirmSaleBtn.onclick = async function() {
         const available = getStockQty(item.id);
         if (item.qty > available) { showPosMsg(`"${item.name}" stock insufficient. Available: ${available}`, true); return; }
     }
+    
+    // Set processing flag
+    isProcessingSale = true;
     confirmSaleBtn.disabled = true;
     confirmSaleBtn.textContent = "⏳ Processing...";
 
@@ -918,6 +928,13 @@ confirmSaleBtn.onclick = async function() {
             const nextNumber = lastNumber + 1;
             const newSaleId = `JJ${nextNumber}`;
 
+            // Check if sale ID already exists
+            const saleRefCheck = db.collection('sales').doc(newSaleId);
+            const existingSaleSnap = await transaction.get(saleRefCheck);
+            if (existingSaleSnap.exists) {
+                throw new Error(`Sale ID ${newSaleId} already exists! Please try again.`);
+            }
+
             const stockRefs = cart.map(item => db.collection('stock').doc(item.id));
             const stockSnaps = await Promise.all(stockRefs.map(ref => transaction.get(ref)));
             
@@ -952,6 +969,8 @@ confirmSaleBtn.onclick = async function() {
     } catch (err) {
         showPosMsg("Sale failed: " + err.message, true);
     } finally {
+        // Reset processing flag
+        isProcessingSale = false;
         confirmSaleBtn.disabled = false;
         confirmSaleBtn.textContent = "✅ Confirm Bill";
     }
